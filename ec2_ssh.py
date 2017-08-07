@@ -56,8 +56,9 @@ def main():
 
 
 def get_host_name(tag, value):
-    for host in get_dns_names(tag, value):
-        return host
+    instances = get_instances(tag, value)
+    for instance_id in instances:
+        return instances[instance_id]['public']
 
 
 def ec2_host_parser():
@@ -76,13 +77,18 @@ def ec2_host_parser():
 
 def host():
     args = ec2_host_parser().parse_args()
-    instances = get_dns_names(args.tag, args.value)
-    random.shuffle(instances)
-    for instance in instances:
-        print(instance)
+    instances = get_instances(args.tag, args.value)
+    for instance_id in instances:
+        print('{}\t{}\t{}\t{}\t{}'.format(
+            instances[instance_id]['type'],
+            instances[instance_id]['az'],
+            instances[instance_id]['public'],
+            instances[instance_id]['private'],
+            instances[instance_id]['name'],
+        ))
 
 
-def get_dns_names(tag, value):
+def get_instances(tag, value):
     conn = boto3.client('ec2')
 
     filters = []
@@ -94,14 +100,25 @@ def get_dns_names(tag, value):
 
     data = conn.describe_instances(Filters=filters)
 
-    dns_names = []
+    instances = {}
     for reservation in data['Reservations']:
-        for instance in reservation['Instances']:
-            if instance['PublicDnsName']:
-                dns_names.append(instance['PublicDnsName'])
-            elif instance['PrivateIpAddress']:
-                dns_names.append(instance['PrivateIpAddress'])
-    return dns_names
+        for i in reservation['Instances']:
+            if i['State']['Name'] not in ('running'):
+                continue
+            instances[i['InstanceId']] = {}
+            if i['PublicIpAddress']:
+                instances[i['InstanceId']]['public'] = i['PublicIpAddress']
+            if i['PrivateIpAddress']:
+                instances[i['InstanceId']]['private'] = i['PrivateIpAddress']
+            if i['InstanceType']:
+                instances[i['InstanceId']]['type'] = i['InstanceType']
+            if i['Placement']['AvailabilityZone']:
+                instances[i['InstanceId']]['az'] = i['Placement']['AvailabilityZone']
+            if i['Tags']:
+                for tag in i['Tags']:
+                    if tag['Key'] == 'Name':
+                        instances[i['InstanceId']]['name'] = tag['Value']
+    return instances
 
 
 if __name__ == '__main__':
